@@ -16,13 +16,16 @@ print(client_socket.recv(1024).decode())
 
 def envia():
     while True:
-        pass
+        message = input('Sua mensagem: \n')
+        client_socket.send(message.encode())
+        if message.lower == 'sair':
+            break
 
 def recebe():
     while True:
-        message = input(' ')
-        client_socket.send(message.encode())
         servidor = client_socket.recv(1024).decode()
+        if servidor == 'sair':
+            break
         print(f"{servidor}")
 
     

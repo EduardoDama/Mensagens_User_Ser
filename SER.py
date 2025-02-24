@@ -14,44 +14,51 @@ print(f"Servidor rodando em {host}:{port}")
 
 # Dicionário para armazenar os clientes conectados
 clientes = {}
+lock = threading.Lock()  # Para garantir acesso thread-safe ao dicionário
 
-def user1(adres1, adres2):
-    messagecl1 = clientes[adres1][1].recv(1024).decode()
-    clientes[adres2][1].send(f'O {clientes[adres1][0]}: {messagecl1}'.encode())
-    if messagecl1.lower() == "sair":
-        return
-    print(f'O {clientes[adres1][0]} falou {messagecl1}')
-
-def user2(adres1, adres2):
-    messagecl2 = clientes[adres2][1].recv(1024).decode()
-    clientes[adres1][1].send(f'O {clientes[adres2][0]}: {messagecl2}'.encode())
-    if messagecl2.lower() == "sair":
-        return
-    print(f'O {clientes[adres1][0]} falou {messagecl2}')
-
-
-
-# Função para lidar com cada cliente individualmente
-def handle_client(address1, address2):
-    print(f"Conexão entre {clientes[address1][0]} e {clientes[address2][0]}")   
-
+def handle_client(cl1, cl2):
     while True:
-        user1(address1, address2)
-        user2(address1, address2)
+        try:
+            # Recebe a mensagem do cliente
+            message = clientes[cl1][1].recv(1024).decode()
+            if not message or message.lower() == "sair":
+                print(f"{clientes[cl1][0]} desconectou.")
+                desconectar(cl1, cl2)
+                break  # Encerra a thread
 
+            print(f"{clientes[cl1][0]} disse: {message}")
+            # Encaminha a mensagem para o outro cliente
+            with lock:
+                if cl2 in clientes:  # Verifica se o outro cliente ainda está conectado
+                    clientes[cl2][1].send(f"{clientes[cl1][0]}: {message}".encode())
+        except Exception as e:
+            print(f"Erro com {clientes[cl1][0]}: {e}")
+            desconectar(cl1, cl2)
+            break
 
-    # Remove os clientes da lista ao desconectar
-    del clientes[address1]
-    del clientes[address2]
-    print(f"Conexões encerradas com {address1} e {address2}")
+def desconectar(cl1, cl2):
+    with lock:
+        # Remove o cliente que se desconectou
+        if cl1 in clientes:
+            print(f"Removendo {clientes[cl1][0]} da lista de clientes.")
+            clientes[cl1][1].send(f"sair".encode())
+
+            del clientes[cl1]
+
+        # Notifica o outro cliente sobre a desconexão
+        if cl2 in clientes:
+            try:
+                clientes[cl2][1].send(f"{clientes[cl1][0]} saiu da conversa.".encode())
+            except Exception as e:
+                print(f"Erro ao notificar {clientes[cl2][0]} sobre a desconexão: {e}")
 
 def conex(client_socket, client_address):
     try:
         nameUser = client_socket.recv(1024).decode()
-        clientes[client_address] = (nameUser, client_socket)
+        with lock:
+            clientes[client_address] = (nameUser, client_socket)
 
         print(f"Cliente {client_address} conectado como {nameUser}")
-
     except Exception as e:
         print(f"Erro ao conectar cliente {client_address}: {e}")
 
@@ -59,11 +66,13 @@ def conex(client_socket, client_address):
 while True:
     client_socket, client_address = server_socket.accept()
     print(f"Nova conexão de {client_address}")
-    client_socket.send('Dispositivo conectado, se quiser se desconectar pressione "sair"'.encode())
+    client_socket.send('Dispositivo conectado. Para se desconectar, digite "sair".'.encode())
 
     conex(client_socket, client_address)
 
     if len(clientes) == 2:
         addresses = list(clientes.keys())
-        client_thread = threading.Thread(target=handle_client, args=(addresses[0], addresses[1]))
-        client_thread.start()
+        client_1 = threading.Thread(target=handle_client, args=(addresses[0], addresses[1]))
+        client_2 = threading.Thread(target=handle_client, args=(addresses[1], addresses[0]))
+        client_1.start()
+        client_2.start()
